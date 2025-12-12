@@ -1,0 +1,133 @@
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# seting awal (biasa aja)
+st.set_page_config(page_title="Dashboard Cuaca", layout="wide")
+
+# style seadanya
+st.markdown("""
+<style>
+.card{
+    background:#f3f3f3;
+    padding:15px;
+    border-radius:10px;
+    border:1px solid #bbb;
+    text-align:center;
+}
+.metric-value{font-size:30px;font-weight:bold;}
+.metric-label{font-size:13px;color:#666;}
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🌦️ Analisis Cuaca (CSV aja, tanpa API)")
+
+# --- coba baca csv beberapa encoding ---
+def coba_baca(file):
+    coba = ["utf-8","latin1","iso-8859-1","windows-1252"]
+    for e in coba:
+        try:
+            df_ = pd.read_csv(file, encoding=e)
+            return df_, e
+        except:
+            pass
+    return None, None
+
+datafile = st.file_uploader("Upload file CSV kamu", type=["csv"])
+
+if datafile:
+    df, enc = coba_baca(datafile)
+    if df is None:
+        st.error("Gabisa baca filenya, encoding ga cocok.")
+        st.stop()
+
+    st.success(f"OK, kebaca. Encoding: **{enc}**")
+
+    # biar gampang, semua kolom kecil
+    df.columns = [c.lower() for c in df.columns]
+
+    wajib = ["timestamp","temperature","humidity","pressure","wind_speed"]
+    if not all(k in df.columns for k in wajib):
+        st.error("Kolomnya kurang, harus ada: " + ", ".join(wajib))
+        st.stop()
+
+    # benerin timestamp, kalau ada yang aneh dibuang
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    df = df.dropna(subset=["timestamp"])
+
+    # -------- fungsi hitung2 -----------
+    def hitung(dfku, kol):
+        d = dfku[kol].describe().to_dict()
+        rata = d["mean"]; sd = d["std"]
+        dfku[kol+"_flag"] = (dfku[kol] > rata + 2*sd) | (dfku[kol] < rata - 2*sd)
+        return d, dfku
+
+    stt1, df = hitung(df, "temperature")
+    stt2, df = hitung(df, "humidity")
+    stt3, df = hitung(df, "pressure")
+    stt4, df = hitung(df, "wind_speed")
+
+    # ----------------- KOTAK ANGGUN --------------
+    st.subheader("Ringkasan Cepat")
+
+    a,b,c,d = st.columns(4)
+    a.markdown(f"<div class='card'><div class='metric-value'>{stt1['mean']:.2f}°C</div><div class='metric-label'>Rata2 Suhu</div></div>", unsafe_allow_html=True)
+    b.markdown(f"<div class='card'><div class='metric-value'>{stt2['mean']:.2f}%</div><div class='metric-label'>Rata2 Lembab</div></div>", unsafe_allow_html=True)
+    c.markdown(f"<div class='card'><div class='metric-value'>{stt3['mean']:.2f} hPa</div><div class='metric-label'>Tekanan</div></div>", unsafe_allow_html=True)
+    d.markdown(f"<div class='card'><div class='metric-value'>{stt4['mean']:.2f} m/s</div><div class='metric-label'>Angin</div></div>", unsafe_allow_html=True)
+
+    # ------------------ filter ------------
+    st.sidebar.header("Filter")
+    tgl1 = st.sidebar.date_input("mulai", df["timestamp"].min())
+    tgl2 = st.sidebar.date_input("akhir", df["timestamp"].max())
+
+    dfv = df[(df["timestamp"] >= pd.to_datetime(tgl1)) &
+             (df["timestamp"] <= pd.to_datetime(tgl2))]
+
+    # ---------------- GRAFIK ----------------
+    st.subheader("Grafik Parameter Cuaca")
+
+    t1, t2, t3, t4 = st.tabs(["Suhu","Kelembaban","Angin","Tekanan"])
+
+    # suhu
+    with t1:
+        fig, ax = plt.subplots(figsize=(10,4))
+        ax.plot(dfv["timestamp"], dfv["temperature"])
+        anom = dfv[dfv["temperature_flag"]]
+        ax.scatter(anom["timestamp"], anom["temperature"], color="r")
+        st.pyplot(fig)
+
+    # lembab
+    with t2:
+        fig, ax = plt.subplots(figsize=(10,4))
+        ax.plot(dfv["timestamp"], dfv["humidity"])
+        st.pyplot(fig)
+
+    # angin
+    with t3:
+        fig, ax = plt.subplots(figsize=(10,4))
+        ax.plot(dfv["timestamp"], dfv["wind_speed"])
+        st.pyplot(fig)
+
+    # tekanan
+    with t4:
+        fig, ax = plt.subplots(figsize=(10,4))
+        ax.plot(dfv["timestamp"], dfv["pressure"])
+        st.pyplot(fig)
+
+    # ------------- cek anomali -------------
+    st.subheader("Deteksi Anomali")
+
+    anom_all = df[(df["temperature_flag"]) | 
+                  (df["humidity_flag"]) |
+                  (df["pressure_flag"]) |
+                  (df["wind_speed_flag"])]
+
+    if len(anom_all) == 0:
+        st.success("Aman, gak ada yang aneh.")
+    else:
+        st.warning("Ada data yang agak janggal:")
+        st.dataframe(anom_all)
+
+else:
+    st.info("Upload CSV dulu ya...")
