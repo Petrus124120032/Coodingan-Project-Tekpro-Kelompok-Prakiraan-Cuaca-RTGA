@@ -169,6 +169,7 @@ if uploaded:
         df["wind_speed_anomaly"]
     ]
 
+
     if len(anomalies_full) == 0:
         st.success("Tidak ada anomali terdeteksi.")
     else:
