@@ -1,0 +1,161 @@
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.signal import savgol_filter
+
+# =======================
+#   SETTING TAMPILAN
+# =======================
+st.set_page_config(page_title="Dashboard Cuaca", layout="wide")
+
+st.markdown("""
+<style>
+div.block-container {padding-top: 20px;}
+.card {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid #ddd;
+    text-align: center;
+}
+.metric-value {
+    font-size: 32px;
+    font-weight: bold;
+    color: #2c3e50;
+}
+.metric-label {
+    font-size: 14px;
+    color: #555;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🌦️ Dashboard Analisis Cuaca (Single File + NumPy + SciPy)")
+
+# ===================================================
+#   AUTO DETECT ENCODING
+# ===================================================
+def load_csv_auto(uploaded_file):
+    encodings = ["utf-8", "latin1", "ISO-8859-1", "windows-1252"]
+    for enc in encodings:
+        try:
+            df = pd.read_csv(uploaded_file, encoding=enc)
+            return df, enc
+        except:
+            continue
+    return None, None
+
+
+# ===================================================
+#   ANALISIS NUMPY + SCIPY
+# ===================================================
+def add_anomaly_flag(df, col):
+    data = df[col].values
+    mean = np.mean(data)
+    std = np.std(data)
+
+    df[f"{col}_anomaly"] = np.abs((data - mean) / std) > 2
+    return df, mean, std
+
+
+def smooth_data(df, col, window=11, poly=3):
+    try:
+        df[f"{col}_smooth"] = savgol_filter(df[col], window_length=window, polyorder=poly)
+    except:
+        df[f"{col}_smooth"] = df[col]
+    return df
+
+
+# ===================================================
+#   GRAFIK
+# ===================================================
+def plot_line(df, col, title):
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(df["timestamp"], df[col], label=col)
+
+    # smoothing line
+    if f"{col}_smooth" in df.columns:
+        ax.plot(df["timestamp"], df[f"{col}_smooth"], linestyle='--', label=f"{col}_smooth")
+
+    # anomaly
+    anomaly_col = f"{col}_anomaly"
+    if anomaly_col in df.columns:
+        anomalies = df[df[anomaly_col]]
+        ax.scatter(anomalies["timestamp"], anomalies[col], color="red", label="Anomaly")
+
+    ax.set_title(title)
+    ax.legend()
+    return fig
+
+
+# ===================================================
+#   UPLOADER
+# ===================================================
+uploaded = st.file_uploader("📂 Upload file CSV", type=["csv"])
+
+if uploaded:
+    df, encoding = load_csv_auto(uploaded)
+
+    if df is None:
+        st.error("❌ Gagal membaca file: encoding tidak cocok.")
+        st.stop()
+
+    st.success(f"✔ File terbaca dengan encoding: {encoding}")
+
+    df.columns = [c.lower() for c in df.columns]
+
+    required = ["timestamp", "temperature", "humidity", "pressure", "wind_speed"]
+    if not all(col in df.columns for col in required):
+        st.error(f"CSV harus mengandung kolom: {', '.join(required)}")
+        st.stop()
+
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    df = df.dropna(subset=["timestamp"])
+
+    # ANALISIS
+    for col in ["temperature", "humidity", "pressure", "wind_speed"]:
+        df, mean, std = add_anomaly_flag(df, col)
+        df = smooth_data(df, col)
+
+    # FILTER TANGGAL
+    st.sidebar.header("🔎 Filter Data")
+    start = st.sidebar.date_input("Tanggal mulai", df["timestamp"].min())
+    end = st.sidebar.date_input("Tanggal akhir", df["timestamp"].max())
+
+    df_filtered = df[(df["timestamp"] >= pd.to_datetime(start)) &
+                     (df["timestamp"] <= pd.to_datetime(end))]
+
+    # GRAFIK
+    st.subheader("📈 Grafik Cuaca")
+
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "🌡️ Suhu", "💧 Kelembaban", "📉 Tekanan", "🌬️ Angin"
+    ])
+
+    with tab1:
+        st.pyplot(plot_line(df_filtered, "temperature", "Grafik Suhu"))
+
+    with tab2:
+        st.pyplot(plot_line(df_filtered, "humidity", "Grafik Kelembaban"))
+
+    with tab3:
+        st.pyplot(plot_line(df_filtered, "pressure", "Grafik Tekanan"))
+
+    with tab4:
+        st.pyplot(plot_line(df_filtered, "wind_speed", "Grafik Kecepatan Angin"))
+
+    # ANOMALI
+    st.subheader("🚨 Deteksi Anomali Cuaca")
+
+    anomaly_data = df[
+        df["temperature_anomaly"] |
+        df["humidity_anomaly"] |
+        df["pressure_anomaly"] |
+        df["wind_speed_anomaly"]
+    ]
+
+    st.dataframe(anomaly_data)
+
+else:
+    st.info("Silakan upload file CSV untuk memulai analisis.")
