@@ -1,0 +1,62 @@
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# =======================
+#   SETTING TAMPILAN
+# =======================
+st.set_page_config(page_title="Dashboard Cuaca", layout="wide")
+
+st.markdown("""
+<style>
+div.block-container { padding-top: 20px; }
+.card {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid #ddd;
+    text-align: center;
+}
+.metric-value {
+    font-size: 32px;
+    font-weight: bold;
+    color: #2c3e50;
+}
+.metric-label {
+    font-size: 14px;
+    color: #555;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🌦️ Dashboard Analisis Cuaca Tanpa API Key")
+
+# =======================
+#   AUTO DETECT ENCODING
+# =======================
+def load_csv_auto(uploaded_file):
+    encodings = ["utf-8", "latin1", "ISO-8859-1", "windows-1252"]
+    for enc in encodings:
+        try:
+            df = pd.read_csv(uploaded_file, encoding=enc)
+            return df, enc
+        except:
+            pass
+    return None, None
+
+uploaded = st.file_uploader("📂 Upload file CSV", type=["csv"])
+
+if uploaded:
+    df, encoding = load_csv_auto(uploaded)
+
+    if df is None:
+        st.error("❌ Gagal membaca file: encoding tidak cocok")
+        st.stop()
+
+    st.success(f"✔ File terbaca dengan encoding: **{encoding}**")
+
+    # Normalisasi nama kolom
+    df.columns = df.columns.str.lower()
+
+    required_cols = ["timestamp", "temperature", "humidity", "pressure", "wind_speed"]
+    if not all(col in df.columns for col in required_cols):
