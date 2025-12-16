@@ -1,0 +1,35 @@
+# generate_suhu_1_tahun.py
+import pandas as pd
+import random
+from datetime import datetime, timedelta
+
+def buat_data_suhu_satu_tahun():
+    start_date = datetime(2025, 1, 1).date()
+    end_date = datetime(2025, 12, 31).date()
+
+    delta = end_date - start_date
+    data = []
+
+    for i in range(delta.days + 1):
+        tanggal = start_date + timedelta(days=i)
+
+        # suhu realistis Indonesia
+        suhu = round(random.uniform(24.0, 33.0), 1)
+
+        data.append([
+            tanggal,
+            suhu
+        ])
+
+    df = pd.DataFrame(data, columns=[
+        "tanggal",
+        "suhu_celsius"
+    ])
+
+    return df
+
+
+if __name__ == "__main__":
+    df = buat_data_suhu_satu_tahun()
+    df.to_csv("data_suhu_1_tahun.csv", index=False)
+    print("File data_suhu_1_tahun.csv berhasil dibuat")
