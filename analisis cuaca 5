@@ -10,7 +10,7 @@ st.set_page_config(page_title="Dashboard Cuaca", layout="wide")
 # ---- Custom Style ----
 st.markdown("""
 <style>
-div.block-container {padding-top: 20px;}
+div.block-container {padding-top: 20px;}   
 .box {
     background: #f1f3f4;
     padding: 18px;
