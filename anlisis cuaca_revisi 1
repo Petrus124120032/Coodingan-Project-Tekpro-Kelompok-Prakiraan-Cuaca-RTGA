@@ -1,0 +1,222 @@
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.linear_model import LinearRegression
+
+# ======================
+# KONFIGURASI HALAMAN
+# ======================
+st.set_page_config(page_title="Dashboard Cuaca", layout="wide")
+
+st.markdown("""
+<style>
+div.block-container {padding-top: 20px;}
+.card {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid #ddd;
+    text-align: center;
+}
+.metric-value {font-size: 32px; font-weight: bold; color: #2c3e50;}
+.metric-label {font-size: 14px; color: #555;}
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🌦️ Dashboard Analisis & Forecast Cuaca")
+st.write("Analisis statistik, deteksi anomali, forecast, evaluasi error, dan input data manual.")
+
+# ======================
+# FUNGSI
+# ======================
+def load_csv_auto(uploaded_file):
+    for enc in ["utf-8", "latin1", "ISO-8859-1", "windows-1252"]:
+        try:
+            return pd.read_csv(uploaded_file, encoding=enc), enc
+        except:
+            pass
+    return None, None
+
+def analyze(df, col):
+    stats = df[col].describe().to_dict()
+    mean, std = stats['mean'], stats['std']
+    df[f"{col}_anomaly"] = (df[col] > mean + 2*std) | (df[col] < mean - 2*std)
+    return stats, df
+
+def rmse(y_true, y_pred):
+    return np.sqrt(np.mean((y_true - y_pred) ** 2))
+
+def forecast_ml(df, col, days):
+    X = df['timestamp'].map(pd.Timestamp.toordinal).values.reshape(-1,1)
+    y = df[col].values
+    model = LinearRegression()
+    model.fit(X, y)
+
+    future_dates = pd.date_range(df['timestamp'].max(), periods=days+1, freq='D')[1:]
+    X_future = future_dates.map(pd.Timestamp.toordinal).values.reshape(-1,1)
+
+    return future_dates, model.predict(X_future), model.predict(X)
+
+# ======================
+# UPLOAD CSV
+# ======================
+uploaded = st.file_uploader("📂 Upload file CSV", type=["csv"])
+
+if uploaded:
+    df, enc = load_csv_auto(uploaded)
+    if df is None:
+        st.error("CSV gagal dibaca")
+        st.stop()
+
+    df.columns = df.columns.str.lower()
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+
+    if "df" not in st.session_state:
+        st.session_state.df = df.copy()
+
+    df = st.session_state.df.sort_values("timestamp")
+
+    # ======================
+    # INPUT DATA DADAKAN
+    # ======================
+    st.subheader("➕ Input Data Cuaca Dadakan")
+
+    with st.expander("Klik untuk input data manual"):
+        c1, c2 = st.columns(2)
+        with c1:
+            tgl = st.date_input("Tanggal")
+            temp = st.number_input("Temperature (°C)", step=0.1)
+            hum = st.number_input("Humidity (%)", step=0.1)
+        with c2:
+            pres = st.number_input("Pressure (hPa)", step=0.1)
+            wind = st.number_input("Wind Speed (m/s)", step=0.1)
+
+        if st.button("➕ Tambahkan Data"):
+            new_row = {
+                "timestamp": pd.to_datetime(tgl),
+                "temperature": temp,
+                "humidity": hum,
+                "pressure": pres,
+                "wind_speed": wind
+            }
+            st.session_state.df = pd.concat(
+                [st.session_state.df, pd.DataFrame([new_row])],
+                ignore_index=True
+            )
+            st.success("Data berhasil ditambahkan")
+            st.rerun()
+
+    # ======================
+    # FILTER WAKTU
+    # ======================
+    st.sidebar.header("🔎 Filter Waktu")
+    start = st.sidebar.date_input("Mulai", df['timestamp'].min())
+    end = st.sidebar.date_input("Akhir", df['timestamp'].max())
+
+    df_f = df[
+        (df['timestamp'] >= pd.to_datetime(start)) &
+        (df['timestamp'] <= pd.to_datetime(end))
+    ]
+
+    # ======================
+    # ANALISIS
+    # ======================
+    stats_temp, df_f = analyze(df_f,'temperature')
+    stats_hum, df_f = analyze(df_f,'humidity')
+    stats_pres, df_f = analyze(df_f,'pressure')
+    stats_wind, df_f = analyze(df_f,'wind_speed')
+
+    st.subheader("📊 Ringkasan Statistik")
+    c1,c2,c3,c4 = st.columns(4)
+    c1.metric("Suhu (°C)", f"{stats_temp['mean']:.2f}")
+    c2.metric("Kelembaban (%)", f"{stats_hum['mean']:.2f}")
+    c3.metric("Tekanan (hPa)", f"{stats_pres['mean']:.2f}")
+    c4.metric("Angin (m/s)", f"{stats_wind['mean']:.2f}")
+
+    # ======================
+    # GRAFIK HISTORIS
+    # ======================
+    st.subheader("📈 Grafik Historis")
+    cols = ['temperature','humidity','pressure','wind_speed']
+    tabs = st.tabs(["Suhu","Kelembaban","Tekanan","Angin"])
+
+    for tab, col in zip(tabs, cols):
+        with tab:
+            fig, ax = plt.subplots(figsize=(10,4))
+            ax.plot(df_f['timestamp'], df_f[col], marker='o')
+            ax.set_ylabel(col)
+            st.pyplot(fig)
+
+   # ======================
+# FORECAST
+# ======================
+st.subheader("🔮 Forecast (perkiraan)")
+days = st.slider("Hari Prediksi", 1, 30, 7)
+
+cols = ['temperature','humidity','pressure','wind_speed']
+
+f_temp_d, f_temp, temp_fit = forecast_ml(df_f,'temperature',days)
+f_hum_d, f_hum, hum_fit = forecast_ml(df_f,'humidity',days)
+f_pres_d, f_pres, pres_fit = forecast_ml(df_f,'pressure',days)
+f_wind_d, f_wind, wind_fit = forecast_ml(df_f,'wind_speed',days)
+
+tabs_f = st.tabs(["Suhu","Kelembaban","Tekanan","Angin"])
+
+for tab, col, f_d, f_y in zip(
+    tabs_f,
+    cols,
+    [f_temp_d, f_hum_d, f_pres_d, f_wind_d],
+    [f_temp, f_hum, f_pres, f_wind]
+):
+    with tab:
+        fig, ax = plt.subplots(figsize=(10,4))
+        ax.plot(df_f['timestamp'], df_f[col], label='Historis')
+        ax.plot(f_d, f_y, '--', label='Forecast')
+        ax.legend()
+        st.pyplot(fig)
+
+# ======================
+# EVALUASI ERROR (RMSE)
+# ======================
+st.subheader("📐 Evaluasi Nilai Error (RMSE)")
+st.write({
+    'Temperature': rmse(df_f['temperature'], temp_fit),
+    'Humidity': rmse(df_f['humidity'], hum_fit),
+    'Pressure': rmse(df_f['pressure'], pres_fit),
+    'Wind Speed': rmse(df_f['wind_speed'], wind_fit)
+})
+
+# ======================
+# TABEL & DOWNLOAD
+# ======================
+forecast_df = pd.DataFrame({
+    'Tanggal': f_temp_d,
+    'Temp_Pred': f_temp,
+    'Hum_Pred': f_hum,
+    'Pres_Pred': f_pres,
+    'Wind_Pred': f_wind
+})
+
+st.subheader("📋 Tabel Perkiraan")
+st.dataframe(forecast_df)
+
+st.download_button(
+    "⬇️ Download Tabel Perkiraan CSV",
+    forecast_df.to_csv(index=False).encode('utf-8'),
+    "perkiraan_cuaca.csv"
+)
+
+# ======================
+# ANOMALI
+# ======================
+st.subheader("🚨 Anomali")
+
+anom_cols = [f"{c}_anomaly" for c in cols if f"{c}_anomaly" in df_f.columns]
+anom = df_f[df_f[anom_cols].any(axis=1)]
+
+if anom.empty:
+    st.success("Tidak ada anomali")
+else:
+    st.warning("Anomali terdeteksi")
+    st.dataframe(anom)
