@@ -1,0 +1,37 @@
+# modul_visualisasi.py
+import matplotlib.pyplot as plt
+import pandas as pd
+from typing import Optional
+
+def plot_time_series(df: pd.DataFrame, x: str, y: str, anomaly_col: Optional[str] = None):
+    """
+    Membuat plot time series dengan penanda anomali opsional.
+    """
+    # Menggunakan style 'seaborn-v0_8' atau 'ggplot' untuk tampilan lebih modern (opsional)
+    fig, ax = plt.subplots(figsize=(10, 4))
+    
+    # Plot garis utama
+    ax.plot(df[x], df[y], label=y, linewidth=1.5, alpha=0.8)
+
+    # Plot anomali jika kolom ditentukan dan tersedia
+    if anomaly_col and anomaly_col in df.columns:
+        anomalies = df[df[anomaly_col] == True]
+        ax.scatter(
+            anomalies[x], 
+            anomalies[y], 
+            color="red", 
+            label="Anomali", 
+            zorder=3,
+            s=30  # Ukuran titik
+        )
+
+    # Pengaturan label dan estetika
+    ax.set_xlabel("Waktu")
+    ax.set_ylabel(y)
+    ax.grid(True, linestyle='--', alpha=0.6)
+    ax.legend(loc='upper right')
+    
+    plt.tight_layout()
+
+    return fig
+
